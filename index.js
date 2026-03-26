@@ -745,27 +745,44 @@ function convertToolToAnthropicFormat(tool) {
 /**
  * Convert the tool_choice value from OpenAI format to Anthropic format.
  *
- * OpenAI "auto"                  → Anthropic { type: "auto" }
- * OpenAI "none"                  → Anthropic { type: "any" } is closest, but we just delete it
- * OpenAI "required"              → Anthropic { type: "any" }
- * OpenAI { type:"function", function:{ name } } → Anthropic { type:"tool", name }
+ * The Anthropic Messages API accepts tool_choice as either:
+ *   - An object: { type: "auto" }, { type: "any" }, { type: "tool", name: "..." }
+ *   - A string shorthand: "auto", "any", "none" (used by some proxy endpoints)
+ *
+ * Some proxy endpoints (e.g. claude-code-proxy) only accept the object form
+ * for { type: "tool", name } but reject objects for simple choices, expecting
+ * plain strings instead. To maximize compatibility, we return strings for
+ * simple choices and objects only when a specific tool name is required.
+ *
+ * OpenAI "auto"                                  → Anthropic { type: "auto" }
+ * OpenAI "none"                                  → Anthropic: omit entirely
+ * OpenAI "required"                              → Anthropic { type: "any" }
+ * OpenAI { type:"function", function:{ name } }  → Anthropic { type:"tool", name }
  *
  * @param {*} toolChoice - OpenAI-format tool_choice value.
  * @returns {*} Anthropic-format tool_choice, or undefined to omit.
  */
 function convertToolChoiceToAnthropicFormat(toolChoice) {
-    if (toolChoice === 'none') {
+    if (toolChoice === 'none' || toolChoice?.type === 'none') {
         return undefined; // Anthropic: just omit tools/tool_choice entirely
     }
-    if (toolChoice === 'auto' || toolChoice == null) {
-        return { type: 'auto' };
+    if (toolChoice === 'auto' || toolChoice == null || toolChoice?.type === 'auto') {
+        // Some Anthropic-compatible endpoints (e.g. claude-code-proxy) reject
+        // the object form { type: "auto" } and require the plain string "auto".
+        // The standard Anthropic API accepts both forms, so using the string
+        // is the safest choice for maximum compatibility.
+        return 'auto';
     }
-    if (toolChoice === 'required') {
-        return { type: 'any' };
+    if (toolChoice === 'required' || toolChoice?.type === 'any') {
+        return 'any';
     }
-    // Object form: { type: "function", function: { name: "..." } }
+    // Object form from OpenAI: { type: "function", function: { name: "..." } }
     if (toolChoice?.type === 'function' && toolChoice.function?.name) {
         return { type: 'tool', name: toolChoice.function.name };
+    }
+    // Already in Anthropic "specific tool" form
+    if (toolChoice?.type === 'tool' && toolChoice?.name) {
+        return { type: 'tool', name: toolChoice.name };
     }
     return toolChoice;
 }
