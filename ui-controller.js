@@ -179,6 +179,7 @@ export function bindUIEvents() {
     $('#tv_connection_profile').on('change', onConnectionProfileChange);
     $('#tv_sidecar_temperature').on('input', onSidecarTemperatureChange);
     $('#tv_sidecar_max_tokens').on('input', onSidecarMaxTokensChange);
+    $('#tv_output_language').on('input', onOutputLanguageChange);
 
     // Sidecar auto-retrieval
     $('#tv_sidecar_auto_retrieval').on('change', onSidecarAutoRetrievalToggle);
@@ -940,6 +941,14 @@ function onSidecarMaxTokensChange() {
     saveSettingsDebounced();
 }
 
+function onOutputLanguageChange() {
+    const settings = getSettings();
+    const raw = String($(this).val() || '').trim();
+    // Empty input = revert to default 'auto' (no override)
+    settings.outputLanguage = raw || 'auto';
+    saveSettingsDebounced();
+}
+
 function onSidecarAutoRetrievalToggle() {
     const settings = getSettings();
     settings.sidecarAutoRetrieval = $(this).prop('checked');
@@ -1012,6 +1021,9 @@ function populateConnectionProfiles() {
     $('#tv_sidecar_temperature').val(settings.sidecarTemperature ?? 0.2);
     $('#tv_sidecar_temp_val').text((settings.sidecarTemperature ?? 0.2).toFixed(2));
     $('#tv_sidecar_max_tokens').val(settings.sidecarMaxTokens || 2048);
+    // Output-language: store 'auto' canonically; show empty input to indicate "no override"
+    const outLang = settings.outputLanguage || 'auto';
+    $('#tv_output_language').val(outLang.toLowerCase() === 'auto' ? '' : outLang);
     $('#tv_sidecar_sampler_fields').toggle(!!currentVal);
 
     // Sync auto-retrieval controls

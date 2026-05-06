@@ -738,6 +738,13 @@
                                         <input type="number" id="tv_sidecar_max_tokens" class="tv-number-input" min="256" max="32768" step="256" value="2048" />
                                     </div>
                                 </div>
+                                <div style="margin-top: 8px;">
+                                    <label class="tv-label" for="tv_output_language">Output Language</label>
+                                    <input type="text" id="tv_output_language" class="text_pole" placeholder="auto, English, Deutsch, Français, Japanese, ..." />
+                                    <div class="tv-help-text" style="margin-top: 4px;">
+                                        Forces sidecar prompts (writer, retrieval, ingest, categorization) to write user-facing fields (titles, content, keys, summaries, reasoning) in the specified language. Use <code>auto</code> to let the LLM follow conversation context (legacy behavior). Examples: <code>Deutsch</code>, <code>English</code>, <code>Français</code>, <code>Japanese</code>. Proper nouns and JSON keys remain unchanged.
+                                    </div>
+                                </div>
                                 <!-- Auto-Retrieval (pre-gen) -->
                                 <div style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 8px;">
                                     <label class="tv-toggle">
