@@ -167,19 +167,37 @@ function resolveProfileConfig() {
     const info = getProviderInfo(profile.api);
     const isKnownProvider = !!PROVIDER_MAP[profile.api];
 
-    // For known providers (those in PROVIDER_MAP with a default endpoint), always use
-    // the PROVIDER_MAP endpoint for direct calls. ST stores session-based proxy URLs
-    // in profile['api-url'] (e.g. NanoGPT's /api/subscription/v1) which don't work
-    // for raw Bearer-token fetch() calls. Only fall back to the profile URL for
-    // 'custom' or unknown providers where we have no built-in endpoint.
-    let endpoint = info.endpoint || profile['api-url'] || null;
-    // ST stores session-based proxy URLs (e.g. /api/subscription/v1) that don't
-    // accept Bearer-token auth. Strip the /subscription segment for direct calls.
-    if (endpoint && endpoint.includes('/subscription/')) {
+    // Respect the user-configured Server URL from the connection profile when set.
+    // Previously this was bypassed for "known" providers (anthropic/openai/...) which
+    // broke local API proxies (e.g. claude-code-proxy on localhost) — the request
+    // always went straight to the official endpoint, ignoring the proxy.
+    //
+    // Resolution order:
+    //   1. profile['api-url']  — user-set Server URL (proxy, sidecar, custom host)
+    //   2. info.endpoint       — built-in default for the provider
+    //
+    // Fallback only when no profile URL is set. This keeps the convenience of the
+    // built-in default while allowing every user to override per profile.
+    let endpoint = profile['api-url'] || info.endpoint || null;
+
+    // Heuristic: ST sometimes stores session-based subscription URLs
+    // (e.g. NanoGPT's /api/subscription/v1) that reject Bearer-token auth.
+    // Strip /subscription/ only when we are using the built-in default endpoint
+    // path (i.e. no explicit profile URL) — NEVER touch a URL the user
+    // explicitly entered, otherwise we would silently rewrite a deliberate
+    // proxy path.
+    const usingProfileUrl = !!profile['api-url'];
+    if (!usingProfileUrl && endpoint && endpoint.includes('/subscription/')) {
         endpoint = endpoint.replace('/subscription/', '/');
         console.debug(`[${MODULE_NAME}] Stripped /subscription from proxy URL for direct API call`);
     }
-    if (!info.endpoint && endpoint && info.format === 'openai' && !endpoint.endsWith('/chat/completions')) {
+
+    // OpenAI-compatible endpoints need a /chat/completions suffix. The built-in
+    // PROVIDER_MAP endpoints already include it; user-set profile URLs are
+    // typically a base URL (e.g. https://my-proxy.local/v1) — append the suffix
+    // if missing. Anthropic and Google endpoints have their own suffixes which
+    // we must NOT modify; the user is responsible for entering the full URL.
+    if (info.format === 'openai' && endpoint && !endpoint.endsWith('/chat/completions')) {
         endpoint = endpoint.replace(/\/+$/, '') + '/chat/completions';
     }
 
@@ -190,6 +208,7 @@ function resolveProfileConfig() {
         format: info.format,
         model: profile.model,
         endpoint: endpoint || 'NONE',
+        endpointSource: usingProfileUrl ? 'profile.api-url' : 'PROVIDER_MAP default',
         secretKeyId: info.secretKey || 'NONE',
         profileUrl: profile['api-url'] || 'not set',
     });
