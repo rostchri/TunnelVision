@@ -325,6 +325,11 @@ async function _callAnthropic({ endpoint, apiKey, model, systemPrompt, prompt, t
 
     const response = await fetch(endpoint, {
         method: 'POST',
+        // Forward auth cookies on cross-origin proxy setups (e.g. ST and the
+        // upstream proxy share an Authelia/Keycloak ForwardAuth domain). Without
+        // this, the browser default 'same-origin' would strip cookies and the
+        // proxy would 401-redirect to the auth provider.
+        credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
@@ -377,6 +382,8 @@ async function _callGoogle({ endpoint, apiKey, model, systemPrompt, prompt, temp
 
     const response = await fetch(googleEndpoint, {
         method: 'POST',
+        // See _callAnthropic for rationale (cross-origin auth-cookie forwarding).
+        credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
             'x-goog-api-key': apiKey,
@@ -428,6 +435,8 @@ async function _callOpenAI({ endpoint, apiKey, model, systemPrompt, prompt, temp
 
     const response = await fetch(endpoint, {
         method: 'POST',
+        // See _callAnthropic for rationale (cross-origin auth-cookie forwarding).
+        credentials: 'include',
         headers,
         body: JSON.stringify(requestBody),
     });
