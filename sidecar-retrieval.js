@@ -21,6 +21,7 @@ import {
     findNodeById,
     getAllEntryUids,
     getSettings,
+    buildLanguageDirective,
 } from './tree-store.js';
 import { getReadableBooks } from './tool-registry.js';
 import { hasEvaluableConditions, separateConditions, mapSelectiveLogic, describeSelectiveLogic, CONDITION_DESCRIPTIONS, CONDITION_LABELS, rollKeywordProbability, formatCondition } from './conditions.js';
@@ -459,7 +460,7 @@ export async function runSidecarRetrieval() {
         const prompt = buildRetrievalPrompt(treeOverview, recentChat, conditionalSection);
         const response = await sidecarGenerate({
             prompt,
-            systemPrompt: SIDECAR_SYSTEM_PROMPT,
+            systemPrompt: SIDECAR_SYSTEM_PROMPT + buildLanguageDirective('reasoning'),
         });
 
         const { nodeIds, reasoning, conditionalEvaluations } = parseSidecarResponse(response);
