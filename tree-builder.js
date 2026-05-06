@@ -22,6 +22,7 @@ import {
     saveTree,
     getAllEntryUids,
     getSettings,
+    buildLanguageDirective,
 } from './tree-store.js';
 
 /**
@@ -303,7 +304,7 @@ async function _buildTreeWithLLM(lorebookName, options = {}) {
     const firstPrompt = buildCategorizationPrompt(lorebookName, chunks[0], activeEntries.length, allEntryManifest);
     const firstResponse = await generateRaw({
         prompt: firstPrompt,
-        systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.',
+        systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.' + buildLanguageDirective('category labels and summaries'),
     });
     if (!firstResponse) throw new Error('LLM returned empty response for tree categorization.');
 
@@ -321,7 +322,7 @@ async function _buildTreeWithLLM(lorebookName, options = {}) {
                 const contPrompt = buildContinuationPrompt(lorebookName, chunks[chunkIdx], existingCategories, activeEntries.length);
                 return generateRaw({
                     prompt: contPrompt,
-                    systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.',
+                    systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.' + buildLanguageDirective('category labels and summaries'),
                 });
             });
         }
@@ -606,7 +607,7 @@ async function _generateSummariesForTree(rootNode, lorebookName, _isRoot = true,
 
         return generateRaw({
             prompt,
-            systemPrompt: 'You are a summarization assistant. Return only the requested output, no commentary.',
+            systemPrompt: 'You are a summarization assistant. Return only the requested output, no commentary.' + buildLanguageDirective('summary text'),
         }).then(response => ({ batchIdx, batch, response }))
             .catch(e => {
                 console.warn(`[TunnelVision] Summary batch ${batchIdx + 1} failed:`, e);
@@ -696,7 +697,7 @@ async function generateBookSummary(rootNode, lorebookName) {
         const totalEntries = getAllEntryUids(rootNode).length;
         const summary = await generateRaw({
             prompt: `This lorebook "${lorebookName}" has ${totalEntries} entries organized into these categories:\n${categoryList}\n\nWrite a brief 1-2 sentence description of what this lorebook contains overall — what kind of information does it store? Return ONLY the description.`,
-            systemPrompt: 'You are a summarization assistant. Return only the requested description, no commentary.',
+            systemPrompt: 'You are a summarization assistant. Return only the requested description, no commentary.' + buildLanguageDirective('description text'),
         });
         if (summary) {
             rootNode.summary = summary.trim();
@@ -744,7 +745,7 @@ async function subdivideLargeNodes(node, bookData, totalEntryCount = 0, _depth =
                 const entryList = nodeEntries.map(e => `  ${formatEntryForLLM(e, detail)}`).join('\n');
                 const response = await generateRaw({
                     prompt: `You have ${nodeEntries.length} lorebook entries in "${node.label}". Split into 2-${subCatCount} sub-categories. Every entry must be assigned.${existingHint}\n\nEntries:\n${entryList}\n\nRespond ONLY with JSON: { "subcategories": [{ "label": "Name", "entries": [uid1, uid2] }] }`,
-                    systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.',
+                    systemPrompt: 'You are a categorization assistant. Respond ONLY with valid JSON, no commentary.' + buildLanguageDirective('category labels and summaries'),
                 });
                 if (response) {
                     const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -946,7 +947,7 @@ async function _ingestChatMessages(lorebookName, { from, to, progress, detail })
         try {
             response = await generateRaw({
                 prompt: buildIngestPrompt(lorebookName, formatted),
-                systemPrompt: 'You are a fact extraction assistant. Extract important facts, character details, relationships, events, and world information from roleplay chat logs. Respond ONLY with valid JSON, no commentary.',
+                systemPrompt: 'You are a fact extraction assistant. Extract important facts, character details, relationships, events, and world information from roleplay chat logs. Respond ONLY with valid JSON, no commentary.' + buildLanguageDirective('title, content, keys'),
             });
         } catch (e) {
             console.error(`[TunnelVision] Ingest chunk ${i + 1} LLM call failed:`, e);
