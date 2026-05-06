@@ -167,39 +167,64 @@ function resolveProfileConfig() {
     const info = getProviderInfo(profile.api);
     const isKnownProvider = !!PROVIDER_MAP[profile.api];
 
-    // Respect the user-configured Server URL from the connection profile when set.
-    // Previously this was bypassed for "known" providers (anthropic/openai/...) which
-    // broke local API proxies (e.g. claude-code-proxy on localhost) — the request
-    // always went straight to the official endpoint, ignoring the proxy.
+    // Read ST's Chat-Completion proxy preset (oai_settings.reverse_proxy).
+    // SillyTavern stores the active reverse-proxy URL + password here for
+    // chat_completion_source providers (claude, openai, openrouter, ...).
+    // The proxy is selected via profile.proxy (preset name) and applied to
+    // oai_settings on profile-switch — it does NOT live in profile['api-url'].
+    const oaiSettings = (getContext()?.chatCompletionSettings) || {};
+    const reverseProxy = typeof oaiSettings.reverse_proxy === 'string'
+        ? oaiSettings.reverse_proxy.trim()
+        : '';
+    const proxyPassword = typeof oaiSettings.proxy_password === 'string'
+        ? oaiSettings.proxy_password
+        : '';
+
+    // Respect the user-configured Server URL when set — directly via the
+    // profile, indirectly via the active proxy preset, or finally via the
+    // built-in PROVIDER_MAP default.
     //
     // Resolution order:
-    //   1. profile['api-url']  — user-set Server URL (proxy, sidecar, custom host)
-    //   2. info.endpoint       — built-in default for the provider
+    //   1. profile['api-url']         — Custom/text-completion provider URL
+    //   2. oai_settings.reverse_proxy — Chat-Completion proxy preset
+    //   3. info.endpoint              — built-in PROVIDER_MAP default
     //
-    // Fallback only when no profile URL is set. This keeps the convenience of the
-    // built-in default while allowing every user to override per profile.
-    let endpoint = profile['api-url'] || info.endpoint || null;
+    // Previously only (1) and (3) were considered, which silently bypassed
+    // local proxies (e.g. claude-code-proxy on localhost) for any provider
+    // in PROVIDER_MAP — fetch() went straight to the official upstream.
+    let endpoint = profile['api-url'] || reverseProxy || info.endpoint || null;
+    let endpointSource;
+    if (profile['api-url']) endpointSource = 'profile.api-url';
+    else if (reverseProxy) endpointSource = 'oai_settings.reverse_proxy';
+    else endpointSource = 'PROVIDER_MAP default';
 
     // Heuristic: ST sometimes stores session-based subscription URLs
     // (e.g. NanoGPT's /api/subscription/v1) that reject Bearer-token auth.
     // Strip /subscription/ only when we are using the built-in default endpoint
-    // path (i.e. no explicit profile URL) — NEVER touch a URL the user
-    // explicitly entered, otherwise we would silently rewrite a deliberate
-    // proxy path.
-    const usingProfileUrl = !!profile['api-url'];
-    if (!usingProfileUrl && endpoint && endpoint.includes('/subscription/')) {
+    // path — NEVER touch a URL the user explicitly entered (profile or proxy),
+    // otherwise we would silently rewrite a deliberate proxy path.
+    if (endpointSource === 'PROVIDER_MAP default' && endpoint && endpoint.includes('/subscription/')) {
         endpoint = endpoint.replace('/subscription/', '/');
         console.debug(`[${MODULE_NAME}] Stripped /subscription from proxy URL for direct API call`);
     }
 
-    // OpenAI-compatible endpoints need a /chat/completions suffix. The built-in
-    // PROVIDER_MAP endpoints already include it; user-set profile URLs are
-    // typically a base URL (e.g. https://my-proxy.local/v1) — append the suffix
-    // if missing. Anthropic and Google endpoints have their own suffixes which
-    // we must NOT modify; the user is responsible for entering the full URL.
+    // Append the format-specific path suffix if the (proxy) URL is just a
+    // base URL. ST's backend does the same: it concatenates `/messages` to
+    // the Claude reverse-proxy URL, `/chat/completions` to OpenAI proxies.
+    // Built-in defaults already include the suffix, so this is a no-op.
     if (info.format === 'openai' && endpoint && !endpoint.endsWith('/chat/completions')) {
         endpoint = endpoint.replace(/\/+$/, '') + '/chat/completions';
+    } else if (info.format === 'anthropic' && endpoint && !endpoint.endsWith('/messages')) {
+        endpoint = endpoint.replace(/\/+$/, '') + '/messages';
     }
+
+    // When a reverse-proxy is active, ST uses oai_settings.proxy_password as
+    // the auth token instead of the upstream provider's API key (the user
+    // typically does not have a direct claude/openai key in that case).
+    // Expose it via secretKeyOverride so sidecarGenerate() can prefer it.
+    const secretKeyOverride = (endpointSource === 'oai_settings.reverse_proxy' && proxyPassword)
+        ? proxyPassword
+        : null;
 
     console.debug(`[${MODULE_NAME}] Resolved sidecar config:`, {
         profileName: profile.name || profileId,
@@ -208,9 +233,11 @@ function resolveProfileConfig() {
         format: info.format,
         model: profile.model,
         endpoint: endpoint || 'NONE',
-        endpointSource: usingProfileUrl ? 'profile.api-url' : 'PROVIDER_MAP default',
+        endpointSource,
         secretKeyId: info.secretKey || 'NONE',
+        secretKeySource: secretKeyOverride ? 'oai_settings.proxy_password' : 'ST secrets store',
         profileUrl: profile['api-url'] || 'not set',
+        reverseProxyActive: !!reverseProxy,
     });
 
     return {
@@ -219,6 +246,7 @@ function resolveProfileConfig() {
         model: profile.model,
         endpoint,
         secretKey: info.secretKey,
+        secretKeyOverride,
     };
 }
 
@@ -244,17 +272,22 @@ export async function sidecarGenerate({ prompt, systemPrompt }) {
     const temperature = settings.sidecarTemperature ?? 0.2;
     const maxTokens = settings.sidecarMaxTokens || 2048;
 
-    const { provider, format, model, endpoint, secretKey } = config;
+    const { provider, format, model, endpoint, secretKey, secretKeyOverride } = config;
 
     if (!endpoint) {
         throw new Error(`No endpoint found for provider "${provider}". Set a Server URL in the connection profile.`);
     }
 
-    // Fetch API key from ST's secrets store
-    const apiKey = await fetchSecretKey(secretKey);
+    // When a reverse-proxy is active, prefer its proxy_password over the
+    // upstream provider's API key — most proxy users don't have a direct
+    // upstream key configured in ST's secrets store.
+    let apiKey = secretKeyOverride;
+    if (!apiKey) {
+        apiKey = await fetchSecretKey(secretKey);
+    }
     if (!apiKey) {
         throw new Error(
-            `No API key found for "${provider}". Add your key in SillyTavern's API settings and ensure allowKeysExposure is enabled in config.yaml.`,
+            `No API key found for "${provider}". Add your key in SillyTavern's API settings and ensure allowKeysExposure is enabled in config.yaml — or, if using a reverse proxy, set its password in the proxy preset.`,
         );
     }
 
