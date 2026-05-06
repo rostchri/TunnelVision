@@ -323,6 +323,11 @@ export const SETTING_DEFAULTS = {
     bookPermissions: {},
     // Compact tool prompts: register one guide tool + one-liner descriptions to save tokens
     compactToolPrompts: true,
+    // Output language for sidecar-generated content. 'auto' = no override (LLM
+    // follows conversation language). Any other string is appended verbatim to
+    // sidecar system prompts as a LANGUAGE REQUIREMENT directive.
+    // Examples: 'Deutsch', 'German', 'English', 'Français', 'Japanese', '日本語'
+    outputLanguage: 'auto',
 };
 
 function ensureSettings() {
@@ -671,4 +676,24 @@ export async function syncTrackerUidsForLorebook(bookName, entriesOrBookData = n
     }
 
     return normalized;
+}
+
+/**
+ * Build a LANGUAGE REQUIREMENT directive that gets appended to sidecar system
+ * prompts. Returns an empty string when outputLanguage is 'auto' (default) so
+ * legacy behavior is preserved unless the user opts in.
+ *
+ * The directive only forces user-facing free-text fields to the chosen
+ * language — structural JSON keys, tool names, and UIDs MUST stay unchanged
+ * to keep parser logic and ID lookups working.
+ *
+ * @param {string} label - human-readable label of what content is being generated
+ *                         (e.g. 'content', 'reasoning', 'category labels'). Helps
+ *                         the LLM understand which fields the directive applies to.
+ * @returns {string} the directive (with leading newlines) or '' for auto.
+ */
+export function buildLanguageDirective(label = 'output') {
+    const lang = (getSettings().outputLanguage || 'auto').trim();
+    if (!lang || lang.toLowerCase() === 'auto') return '';
+    return `\n\nLANGUAGE REQUIREMENT: All user-facing ${label} fields (titles, content, keys, summaries, labels, reasoning) MUST be written in ${lang}. Match the language of the source conversation. Do NOT translate proper nouns (character names, place names). Structural fields (JSON keys, tool names, UIDs) remain unchanged.`;
 }
