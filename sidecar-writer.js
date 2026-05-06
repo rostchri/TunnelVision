@@ -22,6 +22,7 @@ import {
     findNodeById,
     getAllEntryUids,
     getSettings,
+    buildLanguageDirective,
 } from './tree-store.js';
 import { getReadableBooks, checkToolConfirmation, REMEMBER_NAME, UPDATE_NAME, FORGET_NAME, SUMMARIZE_NAME, REORGANIZE_NAME, MERGESPLIT_NAME } from './tool-registry.js';
 import { isSidecarConfigured, sidecarGenerate, getSidecarModelLabel } from './llm-sidecar.js';
@@ -598,7 +599,7 @@ export async function runSidecarWriter() {
         const prompt = buildWriterPrompt(treeOverview, recentChat);
         const response = await sidecarGenerate({
             prompt,
-            systemPrompt: WRITER_SYSTEM_PROMPT,
+            systemPrompt: WRITER_SYSTEM_PROMPT + buildLanguageDirective('content, title, keys, summaries, reasoning'),
         });
 
         const _rawModel = getSidecarModelLabel() || 'unknown';
